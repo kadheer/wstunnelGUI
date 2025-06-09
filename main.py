@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QMenuBar, QFileDialog, QMessageBox, QTabWidget
 )
 from PyQt6.QtGui import QAction
+import subprocess
 
 
 class WstunnelGUIApp(QMainWindow):
@@ -54,13 +55,17 @@ class WstunnelGUIApp(QMainWindow):
         server_tab = QWidget()
         server_layout = QFormLayout(server_tab)
 
-        #Add the fields to the server parameters here (Use addRow to make it easier):
+        # Add server parameters
         self.server_port_number = QLineEdit()
         server_layout.addRow(QLabel("Listen on port number:"), self.server_port_number)
-        
+
+        self.bind_address = QLineEdit("0.0.0.0")  # پیش‌فرض 0.0.0.0
+        server_layout.addRow(QLabel("Bind Address:"), self.bind_address)
+
+        self.tls_checkbox = QCheckBox("Enable TLS")
+        server_layout.addRow(QLabel("TLS:"), self.tls_checkbox)
 
         self.tab_widget.addTab(server_tab, "Server")
-
     def create_client_tab(self):
         """Create the client configuration tab"""
         client_tab = QWidget()
@@ -154,7 +159,19 @@ class WstunnelGUIApp(QMainWindow):
         current_tab = self.tab_widget.currentIndex()
         if current_tab == 0:  # Server tab
             config_type = "Server"
-            QMessageBox.information(self, "Connection Started", "Server configuration activated")
+            port = self.server_port_number.text()
+            bind_addr = self.bind_address.text() or "0.0.0.0"
+            cmd = f"wstunnel server --local-port {port} --bind-address {bind_addr}"
+            if self.tls_checkbox.isChecked():
+                cmd += " --tls"
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception(result.stderr)    
+                QMessageBox.information(self, "Connection Started", "Server configuration activated")
+            except Exception as e:
+                self.deactivate_connection()
+                QMessageBox.critical(self, "Error", f"Failed to start server: {str(e)}")
         else:  # Client tab
             config_type = "Client"
             QMessageBox.information(self, "Connection Started", "Client configuration activated")
