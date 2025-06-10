@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
     QMenuBar, QFileDialog, QMessageBox, QTabWidget
 )
 from PyQt6.QtGui import QAction
+import json
+import subprocess
 
 
 class WstunnelGUIApp(QMainWindow):
@@ -49,18 +51,25 @@ class WstunnelGUIApp(QMainWindow):
 
         main_layout.addWidget(status_panel)
 
+        self.config_dic = {"server": {} , "client": {} }
+        self.wstunnel_executable = None
+
     def create_server_tab(self):
         """Create the server configuration tab"""
         server_tab = QWidget()
         server_layout = QFormLayout(server_tab)
 
-        #Add the fields to the server parameters here (Use addRow to make it easier):
+        # Add server parameters
         self.server_port_number = QLineEdit()
         server_layout.addRow(QLabel("Listen on port number:"), self.server_port_number)
-        
+
+        self.bind_address = QLineEdit("0.0.0.0")  # پیش‌فرض 0.0.0.0
+        server_layout.addRow(QLabel("Bind Address:"), self.bind_address)
+
+        self.tls_checkbox = QCheckBox("Enable TLS")
+        server_layout.addRow(QLabel("TLS:"), self.tls_checkbox)
 
         self.tab_widget.addTab(server_tab, "Server")
-
     def create_client_tab(self):
         """Create the client configuration tab"""
         client_tab = QWidget()
@@ -69,8 +78,18 @@ class WstunnelGUIApp(QMainWindow):
         #Add the fields to the client parameters here (Use addRow to make it easier):
         self.client_port_number = QLineEdit()
         client_layout.addRow(QLabel("Destination port number:"), self.client_port_number)
+        self.client_port_number.editingFinished.connect(lambda: self.config_changed(self.client_port_number))
 
         self.tab_widget.addTab(client_tab, "Client")
+
+    def config_changed(self,widget):
+        match widget:
+            case self.client_port_number:
+                self.config_dic["client"]["port"] = widget.text()
+            case self.server_port_number:
+                self.config_dic["server"]["port"] = widget.text()
+            case _:
+                pass
 
     def create_menu_bar(self):
         menu_bar = self.menuBar()
@@ -90,6 +109,18 @@ class WstunnelGUIApp(QMainWindow):
         file_menu.addAction(save_as_action)
 
         edit_menu = menu_bar.addMenu("Edit")
+
+        select_executable_action = QAction("Select Wstunnel Executable", self)
+        select_executable_action.triggered.connect(self.select_wstunnel_executable)
+        edit_menu.addAction(select_executable_action)
+
+    def select_wstunnel_executable(self):
+        """Open file dialog to select wstunnel executable"""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Wstunnel Executable", "",)
+        
+        if file_path:
+            self.wstunnel_executable = file_path
+
 
     def open_config(self):
         if self.connection_active:
@@ -116,16 +147,18 @@ class WstunnelGUIApp(QMainWindow):
             return
         
         try:
+            with open(self.current_file, "w", encoding="utf-8") as f:
+                json.dump(self.config_dic, f, indent=4)
             QMessageBox.information(
                 self, "Config Saved", 
-                f"Config saved to:\n{self.current_file}\n\n(Actual saving not implemented in this example)"
+                f"Config saved to:\n{self.current_file}"
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save config:\n{str(e)}")
 
     def save_config_as(self):
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Config File", "", "WireGuard Config Files (*.conf);;All Files (*)"
+            self, "Save Config File", "", "Wstunnel JSON Config Files (*.json);;All Files (*)"
         )
         
         if file_path:
@@ -154,7 +187,19 @@ class WstunnelGUIApp(QMainWindow):
         current_tab = self.tab_widget.currentIndex()
         if current_tab == 0:  # Server tab
             config_type = "Server"
-            QMessageBox.information(self, "Connection Started", "Server configuration activated")
+            port = self.server_port_number.text()
+            bind_addr = self.bind_address.text() or "0.0.0.0"
+            cmd = f"wstunnel server --local-port {port} --bind-address {bind_addr}"
+            if self.tls_checkbox.isChecked():
+                cmd += " --tls"
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception(result.stderr)    
+                QMessageBox.information(self, "Connection Started", "Server configuration activated")
+            except Exception as e:
+                self.deactivate_connection()
+                QMessageBox.critical(self, "Error", f"Failed to start server: {str(e)}")
         else:  # Client tab
             config_type = "Client"
             QMessageBox.information(self, "Connection Started", "Client configuration activated")
