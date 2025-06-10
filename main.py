@@ -8,7 +8,6 @@ from PyQt6.QtGui import QAction
 import json
 import subprocess
 
-
 class WstunnelGUIApp(QMainWindow):
     def __init__(self):
         super().__init__()
